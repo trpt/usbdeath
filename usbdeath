@@ -1,0 +1,265 @@
+#!/bin/bash
+
+# usbdeath by Trepet
+# v. 0.6
+# © GPLv3
+
+# Safe (demo) mode, remove to run real commands
+demo='yes'
+
+# Commands to run on trigger
+commands_list=(
+'sync'
+'poweroff'
+)
+
+# Use colors in messages
+colors='yes'
+
+# Advanced config #
+###################
+
+# Logging, you possibly don't want to turn it off
+log_enabled='yes'
+log_file='/var/log/usbdeath.log'
+
+# Path to editor apps
+EDITOR_X='gedit'
+EDITOR_CONSOLE='nano'
+
+# Path to udev rule, edit carefully
+rule_file='/etc/udev/rules.d/00-usbdeath.rules'
+
+# Path to the app, do not edit
+SCR="$( cd "$(dirname "$0")" ; pwd -P )"
+PROGRAM="${0##*/}"
+PROGRAM_ABS="$SCR/$PROGRAM"
+
+# Run this when uknown usb device is added
+trigger_cmd_add="$PROGRAM_ABS trigger"
+
+# Run this when specified usb device is removed
+trigger_cmd_remove="$PROGRAM_ABS trigger"
+
+# Code       #
+##############
+[[ -n $DISPLAY ]] && INX=yes
+[[ -n $INX ]] && export EDITOR="$EDITOR_X" || export EDITOR="$EDITOR_CONSOLE"
+
+die() {
+  [[ $colors = 'yes' ]] && echo -e "\n\033[1;31m$@\033[0m" >&2 || echo -e "\n$@" >&2
+  exit 1
+}
+
+message() { [[ $colors = 'yes' ]] && echo -e "\033[1;37m$@\033[0m" || echo -e "$@" ;}
+
+if [[ $(/usr/bin/id -u) -ne 0 ]]; then
+  die "Not running as root"
+fi
+
+if [[ ! -d $(dirname "$rule_file") ]]; then
+  die "No udev rules folder found"
+fi
+
+usage() {
+  cat <<EOF
+
+usbdeath by Trepet
+
+usage: ${0##*/} [action]
+
+  action
+    o, on - activate usbdeath
+    x, off - temporarily deactivate usbdeath
+    j, eject - add entry on eject event
+    g, gen - generate or refresh whitelist udev rules file
+    d, del - delete udev rules file
+    t, trigger - trigger event on insertion or removal
+    e, edit - edit udev rules file manually
+    s, show - show currently connected usb devices
+
+  config (check source)
+    udev rule file: $rule_file
+    editor: $EDITOR
+    safe (demo) mode: $demo
+    colors: $colors
+    logs: $log_enabled, $log_file
+
+EOF
+}
+
+trigger() {
+  trigger_msg="$(date '+%Y-%m-%d %H:%M:%S') usbdeath triggered!"
+  if [[ $demo = 'yes' ]]; then
+    echo "$trigger_msg Demo mode"  >> "$log_file"
+  else
+    [[ $log_enabled = 'yes' ]] && (echo "$trigger_msg"  >> "$log_file" && echo "$trigger_msg" | systemd-cat --priority=7)
+    for i in "${commands_list[@]}"; do
+      eval "$i"
+    done
+  fi
+}
+
+rule_end="SUBSYSTEM==\"usb\", ENV{ACTION}==\"add\", ENV{DEVTYPE}==\"usb_device\", RUN+=\""$trigger_cmd_add"\", OPTIONS+=\"last_rule\"
+LABEL=\"end\""
+
+read_values() {
+  while read key value; do
+    case "$key" in
+      "idVendor")
+          vendors+=("${value:2:4}")
+          ;;
+      "idProduct")
+          products+=("${value:2:4}")
+          ;;
+      "iSerial")
+          serials+=("${value:2}")
+          ;;
+      "iProduct")
+          value="${value:2}"
+          products_name+=("${value// /?}")
+          ;;
+    esac
+  done < <( lsusb -v 2>/dev/null )
+}
+
+show_values() {
+  for ((i=0; i < "${#vendors[@]}"; i++)); do
+    show_usbs=" $i"
+    [[ -z ${products_name[$i]} ]] || show_usbs="${show_usbs} Name=${products_name[$i]//\?/ },"
+    show_usbs="${show_usbs} Vendor=${vendors[$i]}, Product=${products[$i]}"
+    [[ -z ${serials[$i]} ]] || show_usbs="${show_usbs}, Serial=${serials[$i]}"
+    echo "$show_usbs"
+  done
+}
+
+choose_remove() {
+  message "\nChoose number to add"
+  read -e number
+  [[ -z "${vendors[$number]}" || !($number == ?(-)+([0-9])) ]] && die "wrong number"
+
+  string_eject="SUBSYSTEM==\"usb\", ENV{ID_VENDOR_ID}==\""${vendors[$number]}"\", ENV{ID_MODEL_ID}==\""${products[$number]}"\""
+  [[ -z ${serials[$number]} ]] || string_eject="${string_eject}, ENV{ID_SERIAL_SHORT}==\""${serials[$number]}"\""
+  [[ -z ${products_name[$number]} ]] || string_eject="${string_eject}, ENV{ID_MODEL}==\""${products_name[$number]}"\""
+  string_eject="${string_eject}, ACTION==\"remove\", RUN+=\""$trigger_cmd_remove"\", OPTIONS+=\"last_rule\""
+
+  [[ -f "${rule_file}.off" ]] && rule_file="${rule_file}.off"
+
+  if [[ ! -f "$rule_file" ]]; then
+    rulevar='# usbdeath rules file\n'
+    rulevar+="\n${string_eject}"
+  else
+    rulevar="$(<$rule_file)"
+    if [[ "$rulevar" =~ .*"$rule_end".* ]]; then
+      rulevar="${rulevar%%$rule_end}"
+      rulevar="${rulevar/%$'\n'}"
+      rulevar+="\n${string_eject}"
+      rulevar+="\n$rule_end"
+    else
+      rulevar+="\n${string_eject}"
+    fi
+  fi
+
+  echo -e "$rulevar" > "$rule_file"
+  udevadm control --reload
+  message "\nAdded:\n${products_name[$number]//\?/ } ${vendors[$number]} ${products[$number]} ${serials[$number]}"
+}
+
+gen_whitelist() {
+  count=0
+  [[ -f "${rule_file}.off" ]] && rule_file="${rule_file}.off"
+
+  if [[ ! -f "$rule_file" ]]; then
+    rulevar='# usbdeath rules file\n'
+  else
+    rulevar="$(<$rule_file)"
+    rulevar="${rulevar%%$rule_end}"
+    rulevar="${rulevar/%$'\n'}"
+  fi
+
+  for ((i=0; i < "${#vendors[@]}"; i++)); do
+    string="SUBSYSTEM==\"usb\", ATTR{idVendor}==\""${vendors[$i]}"\", ATTR{idProduct}==\""${products[$i]}"\""
+    [[ -z  ${serials[$i]} ]] || string="${string}, ATTR{serial}==\""${serials[$i]}"\""
+    [[ -z  ${products_name[$i]} ]] || string="${string}, ATTR{product}==\""${products_name[$i]}"\""
+    string="${string}, ENV{ACTION}==\"add\", GOTO=\"end\""
+
+    if [[ !("$rulevar" =~ .*"$string".*) ]]; then
+      rulevar+="\n${string}"
+      ((count++))
+    fi
+  done
+
+  rulevar+="\n$rule_end"
+  echo -e "$rulevar" > "$rule_file"
+  udevadm control --reload
+}
+
+del_rule() {
+  [[ -f "${rule_file}.off" ]] && rule_file="${rule_file}.off"
+  if [[ -f "$rule_file" ]]; then
+    rm "$rule_file" && message "$rule_file deleted" || die "error deleting $rule_file"
+    udevadm control --reload
+  else
+    die "$rule_file does not exist"
+  fi
+}
+
+deactivate() {
+  if [[ -f "$rule_file" ]]; then
+    mv "$rule_file" "${rule_file}.off"
+    udevadm control --reload
+    message "usbdeath deactivated"
+  else
+    die "$rule_file does not exist"
+  fi
+}
+
+activate() {
+  if [[ -f "${rule_file}.off" ]]; then
+    mv "${rule_file}.off" "$rule_file"
+    udevadm control --reload
+    message "usbdeath activated"
+  else
+    read_values && gen_whitelist && message "rules refreshed, $count rules added, usbdeath activated"
+  fi
+}
+
+case $1 in
+  g|gen)
+    read_values && gen_whitelist && message "rules refreshed, $count rules added"
+    [[ "${rule_file##*.}" = 'off' ]] && message "usbdeath inactive"
+  ;;
+
+  d|del)
+    del_rule
+  ;;
+
+  x|off)
+    deactivate
+  ;;
+
+  o|on)
+    activate
+  ;;
+
+  t|trigger)
+    trigger
+  ;;
+
+  e|editor)
+    "$EDITOR" "$rule_file"
+  ;;
+
+  s|show)
+    read_values && show_values
+  ;;
+
+  j|eject)
+    read_values && show_values && choose_remove
+    [[ "${rule_file##*.}" = 'off' ]] && message "usbdeath inactive"
+  ;;
+
+  *)
+    usage
+  ;;
+esac
