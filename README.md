@@ -13,38 +13,38 @@ You should change some options inside the script. Specifically, turn off safe (d
 # Usage
 `usbdeath action`
 
-where `action` is:
-`o`, `on` - activate usbdeath
-`x`, `off` - temporarily deactivate usbdeath
-`j`, `eject` - add entry on eject event
-`g`, `gen` - generate or refresh whitelist udev rules file
-`d`, `del` - delete udev rules file
-`t`, `trigger` - trigger event on insertion or removal
-`e`, `edit` - edit udev rules file manually
-`s`, `show` - show currently connected usb devices
+where `action` is:  
+`o`, `on` - activate usbdeath  
+`x`, `off` - temporarily deactivate usbdeath  
+`j`, `eject` - add entry on eject event  
+`g`, `gen` - generate or refresh whitelist udev rules file  
+`d`, `del` - delete udev rules file  
+`t`, `trigger` - trigger event on insertion or removal  
+`e`, `edit` - edit udev rules file manually  
+`s`, `show` - show currently connected usb devices  
 
 You should probably put this script in PATH and do not move it after activation, as rules file relies on absolute path to script. You can change this behavior in advanced config section of script though.
 
 # Examples
-*Check out connected usb devices*
-`usbdeath show`
-*First run, generate whitelist of connected usb devices*
-`usbdeath on`
-*Also add event on ejection of specific usb device, just choose one from the list*
-`usbdeath eject`
-*So usbdeath rules are active. You need to insert new trusted usb device, temporarily turn off usbdeath*
-`usbdeath off`
-*You decide to permanently add newly inserted device(s) to whitelist*
-`usbdeath gen`
-*And activate `usbdeath` rules again*
-`usbdeath on`
-*You are so badass that you can edit udev rules file manually*
-`usbdeath edit`
-*You messed up with editing or something went wrong, you decide to delete rules file and start over*
-`usbdeath del`
+*Check out connected usb devices*  
+`usbdeath show`  
+*First run, generate whitelist of connected usb devices*  
+`usbdeath on`  
+*Also add event on ejection of specific usb device, just choose one from the list*  
+`usbdeath eject`  
+*So usbdeath rules are active. You need to insert new trusted usb device, temporarily turn off usbdeath*  
+`usbdeath off`  
+*You decide to permanently add newly inserted device(s) to whitelist*  
+`usbdeath gen`  
+*And activate `usbdeath` rules again*  
+`usbdeath on`  
+*You are so badass that you can edit udev rules file manually*  
+`usbdeath edit`  
+*You messed up with editing or something went wrong, you decide to delete rules file and start over*  
+`usbdeath del`  
 
 # Dependencies
-`bash`
+`bash`  
 modern linux os with `udev` and probably `systemd`
 
 Tested in Arch Linux
