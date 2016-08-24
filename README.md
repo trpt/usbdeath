@@ -36,7 +36,7 @@ You should probably put this script in PATH and do not move it after activation,
 `usbdeath off`  
 *You decide to permanently add newly inserted device(s) to whitelist*  
 `usbdeath gen`  
-*And activate `usbdeath` rules again*  
+*And activate usbdeath rules again*  
 `usbdeath on`  
 *You are so badass that you can edit udev rules file manually*  
 `usbdeath edit`  
