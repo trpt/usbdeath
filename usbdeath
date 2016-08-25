@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # usbdeath by Trepet
-# v. 0.6
+# v. 0.65
 # © GPLv3
 
 # Safe (demo) mode, remove to run real commands
@@ -23,9 +23,10 @@ colors='yes'
 log_enabled='yes'
 log_file='/var/log/usbdeath.log'
 
-# Path to editor apps
-EDITOR_X='gedit'
-EDITOR_CONSOLE='nano'
+# Use custom editor
+custom_editor='yes'
+editor_x='gedit'
+editor_console='nano'
 
 # Path to udev rule, edit carefully
 rule_file='/etc/udev/rules.d/00-usbdeath.rules'
@@ -43,8 +44,10 @@ trigger_cmd_remove="$PROGRAM_ABS trigger"
 
 # Code       #
 ##############
-[[ -n $DISPLAY ]] && INX=yes
-[[ -n $INX ]] && export EDITOR="$EDITOR_X" || export EDITOR="$EDITOR_CONSOLE"
+if [[ $custom_editor = 'yes' ]]; then
+  [[ -n $DISPLAY ]] && INX=yes
+  [[ -n $INX ]] && export EDITOR="$editor_x" || export EDITOR="$editor_console"
+fi
 
 die() {
   [[ $colors = 'yes' ]] && echo -e "\n\033[1;31m$@\033[0m" >&2 || echo -e "\n$@" >&2
@@ -224,6 +227,16 @@ activate() {
   fi
 }
 
+edit_rules() {
+  if [[ -f "${rule_file}.off" ]]; then
+    die "usbdeath deactivated, activate it first"
+  elif [[ ! -f "${rule_file}" ]]; then
+    die "udev file does not exist, activate usbdeath first"
+  else
+    "$EDITOR" "$rule_file"
+  fi
+}
+
 case $1 in
   g|gen)
     read_values && gen_whitelist && message "rules refreshed, $count rules added"
@@ -247,7 +260,7 @@ case $1 in
   ;;
 
   e|editor)
-    "$EDITOR" "$rule_file"
+    edit_rules
   ;;
 
   s|show)
