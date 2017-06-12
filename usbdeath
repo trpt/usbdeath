@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # usbdeath by Trepet
-# v. 0.65
+# v. 0.8b
 # © GPLv3
 
 # Safe (demo) mode, remove to run real commands
@@ -91,18 +91,6 @@ usage: ${0##*/} [action]
 EOF
 }
 
-trigger() {
-  trigger_msg="$(date '+%Y-%m-%d %H:%M:%S') usbdeath triggered!"
-  if [[ $demo = 'yes' ]]; then
-    echo "$trigger_msg Demo mode"  >> "$log_file"
-  else
-    [[ $log_enabled = 'yes' ]] && (echo "$trigger_msg"  >> "$log_file" && echo "$trigger_msg" | systemd-cat --priority=7)
-    for i in "${commands_list[@]}"; do
-      eval "$i"
-    done
-  fi
-}
-
 rule_end="SUBSYSTEM==\"usb\", ENV{ACTION}==\"add\", ENV{DEVTYPE}==\"usb_device\", RUN+=\""$trigger_cmd_add"\", OPTIONS+=\"last_rule\"
 LABEL=\"end\""
 
@@ -119,8 +107,7 @@ read_values() {
           serials+=("${value:2}")
           ;;
       "iProduct")
-          value="${value:2}"
-          products_name+=("${value// /?}")
+          products_name+=("${value:2}")
           ;;
     esac
   done < <( lsusb -v 2>/dev/null )
@@ -136,6 +123,15 @@ show_values() {
   done
 }
 
+eject_product() {
+  if [[ -z ${products_name[$number]} ]]; then
+    rulevar+="\n${string_eject}\n"
+  else
+    rulevar+="\n#${products_name[$number]}"
+    rulevar+="\n${string_eject}\n"
+  fi
+}
+
 choose_remove() {
   message "\nChoose number to add"
   read -e number
@@ -143,23 +139,22 @@ choose_remove() {
 
   string_eject="SUBSYSTEM==\"usb\", ENV{ID_VENDOR_ID}==\""${vendors[$number]}"\", ENV{ID_MODEL_ID}==\""${products[$number]}"\""
   [[ -z ${serials[$number]} ]] || string_eject="${string_eject}, ENV{ID_SERIAL_SHORT}==\""${serials[$number]}"\""
-  [[ -z ${products_name[$number]} ]] || string_eject="${string_eject}, ENV{ID_MODEL}==\""${products_name[$number]}"\""
   string_eject="${string_eject}, ACTION==\"remove\", RUN+=\""$trigger_cmd_remove"\", OPTIONS+=\"last_rule\""
 
   [[ -f "${rule_file}.off" ]] && rule_file="${rule_file}.off"
 
   if [[ ! -f "$rule_file" ]]; then
     rulevar='# usbdeath rules file\n'
-    rulevar+="\n${string_eject}"
+    eject_product
   else
     rulevar="$(<$rule_file)"
     if [[ "$rulevar" =~ .*"$rule_end".* ]]; then
       rulevar="${rulevar%%$rule_end}"
       rulevar="${rulevar/%$'\n'}"
-      rulevar+="\n${string_eject}"
+      eject_product
       rulevar+="\n$rule_end"
     else
-      rulevar+="\n${string_eject}"
+      eject_product
     fi
   fi
 
@@ -183,11 +178,15 @@ gen_whitelist() {
   for ((i=0; i < "${#vendors[@]}"; i++)); do
     string="SUBSYSTEM==\"usb\", ATTR{idVendor}==\""${vendors[$i]}"\", ATTR{idProduct}==\""${products[$i]}"\""
     [[ -z  ${serials[$i]} ]] || string="${string}, ATTR{serial}==\""${serials[$i]}"\""
-    [[ -z  ${products_name[$i]} ]] || string="${string}, ATTR{product}==\""${products_name[$i]}"\""
     string="${string}, ENV{ACTION}==\"add\", GOTO=\"end\""
 
     if [[ !("$rulevar" =~ .*"$string".*) ]]; then
-      rulevar+="\n${string}"
+      if [[ -z ${products_name[$i]} ]]; then
+        rulevar+="\n${string}\n"
+      else
+        rulevar+="\n#${products_name[$i]}"
+        rulevar+="\n${string}\n"
+      fi
       ((count++))
     fi
   done
@@ -234,6 +233,32 @@ edit_rules() {
     die "udev file does not exist, activate usbdeath first"
   else
     "$EDITOR" "$rule_file"
+  fi
+}
+
+trigger() {
+  read_values
+  rulevar="$(<$rule_file)"
+
+  for ((i=0; i < "${#vendors[@]}"; i++)); do
+    string="SUBSYSTEM==\"usb\", ATTR{idVendor}==\""${vendors[$i]}"\", ATTR{idProduct}==\""${products[$i]}"\""
+    [[ -z  ${serials[$i]} ]] || string="${string}, ATTR{serial}==\""${serials[$i]}"\""
+
+    if [[ !("$rulevar" =~ .*"$string".*) ]]; then
+      [[ -z  ${products_name[$i]} ]] || string+="\n${products_name[$i]}"
+      newdevice+="${string}"
+    fi
+  done
+
+  trigger_msg="\n$(date '+%Y-%m-%d %H:%M:%S') usbdeath triggered!\n"
+  [[ -z $newdevice ]] && trigger_msg+="Device ejected" || trigger_msg+="Unknown device: $newdevice"
+  if [[ $demo = 'yes' ]]; then
+    echo -e "$trigger_msg \nDemo mode"  >> "$log_file"
+  else
+    [[ $log_enabled = 'yes' ]] && (echo -e "$trigger_msg"  >> "$log_file" && echo -e "$trigger_msg" | systemd-cat --priority=7)
+    for i in "${commands_list[@]}"; do
+      eval "$i"
+    done
   fi
 }
 
